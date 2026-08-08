@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { useSession } from "next-auth/react";
-import { AlertTriangle } from "lucide-react";
+import { useSession, signOut } from "next-auth/react";
+import { AlertTriangle, LogOut, RotateCw } from "lucide-react";
 import { ProfileContext } from "@/lib/useActiveProfile";
 import { listProfiles, getProfile, createProfile, seedDefaultSubjects, type Profile, type Grade } from "@/lib/db";
 import ProfileSwitcherModal from "@/components/ProfileSwitcherModal";
 import Card from "@/components/ui/Card";
+import Button from "@/components/ui/Button";
 
 const STORAGE_KEY = "activeProfileId";
 
@@ -15,8 +16,13 @@ function friendlyFirebaseError(err: unknown): string {
   if (/api-key|invalid-api-key|auth\/invalid/i.test(message)) {
     return "Firebase isn't configured yet — set real NEXT_PUBLIC_FIREBASE_* values in .env.local (see CLAUDE.md) to load profiles and data.";
   }
-  if (/permission-denied/i.test(message)) {
-    return "Firestore denied this request — make sure firestore.rules is deployed and the Firebase Admin credentials are set so the sign-in bridge can complete.";
+  // Real Firestore reports this as "permission-denied"; the emulator's raw
+  // rules-evaluation error looks like `false for 'list' @ L16` instead —
+  // both mean the same thing: request.auth was never populated, almost
+  // always because /api/firebase-token failed (e.g. placeholder
+  // FIREBASE_ADMIN_* creds) so the custom-token sign-in never completed.
+  if (/permission-denied|insufficient|false for '/i.test(message)) {
+    return "Firestore denied this request — this usually means the Firebase sign-in bridge (/api/firebase-token) failed, most often because FIREBASE_ADMIN_* in .env.local is still a placeholder. Check the browser console/Network tab for the firebase-token request, and see docs/setup-guide.md §1d.";
   }
   return `Couldn't load your profiles: ${message}`;
 }
@@ -115,6 +121,14 @@ export default function ProfileProvider({ children }: { children: ReactNode }) {
               <h2 className="font-heading text-lg font-bold text-foreground">Something needs setting up</h2>
             </div>
             <p className="mt-2 text-sm text-muted">{error}</p>
+            <div className="mt-4 flex gap-2">
+              <Button variant="secondary" className="flex flex-1 items-center justify-center gap-2" onClick={refresh}>
+                <RotateCw size={18} /> Try again
+              </Button>
+              <Button variant="ghost" className="flex items-center justify-center gap-2" onClick={() => signOut()}>
+                <LogOut size={18} /> Sign out
+              </Button>
+            </div>
           </Card>
         </div>
       )}

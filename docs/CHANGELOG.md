@@ -2,6 +2,13 @@
 
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Update this file alongside any non-trivial change — it's the fast way to answer "when did X happen and why."
 
+## 2026-08-08 (dashboard dead-end fix)
+
+### Fixed
+- **Dashboard sign-out dead end.** The "Sign out" button in `DashboardShell.tsx` only rendered inside the `{activeProfile && ...}` block — so if `ProfileProvider`'s error card showed (e.g. Firebase not configured yet), there was no way to sign out and start over. The error card is a `fixed inset-0 z-50` overlay, so even the header's other buttons underneath it were unreachable. Fixed by (1) always rendering Sign Out in the header regardless of profile state, and (2) adding "Try again" / "Sign out" actions directly into the error card itself.
+- `/api/firebase-token` returned a bare 500 with no body on failure (almost always caused by placeholder `FIREBASE_ADMIN_*` values). Now returns a clear JSON error message and logs server-side, pointing at `docs/setup-guide.md` §1d.
+- `ProfileProvider`'s `friendlyFirebaseError` only recognized real Firestore's `permission-denied` code; the emulator's raw rules-evaluation error (`false for 'list' @ L16`) fell through to a generic, unhelpful message. Broadened detection to cover both and explain the likely root cause (the `/api/firebase-token` bridge failing).
+
 ## 2026-08-08 (Firebase emulators)
 
 ### Added

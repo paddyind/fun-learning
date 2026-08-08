@@ -36,13 +36,6 @@ function DashboardHeader() {
             >
               <Users size={20} />
             </button>
-            <button
-              onClick={() => signOut()}
-              title="Sign out"
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-muted text-muted ring-1 ring-line transition hover:bg-line active:scale-95"
-            >
-              <LogOut size={20} />
-            </button>
           </>
         )}
         <Link
@@ -53,6 +46,16 @@ function DashboardHeader() {
           <HelpCircle size={20} />
         </Link>
         <ThemeToggle />
+        {/* Always visible, not just when a profile loaded — otherwise a
+            broken Firebase bridge (see ProfileProvider's error card) leaves
+            no way to sign out and start over. */}
+        <button
+          onClick={() => signOut()}
+          title="Sign out"
+          className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-muted text-muted ring-1 ring-line transition hover:bg-line active:scale-95"
+        >
+          <LogOut size={20} />
+        </button>
       </div>
     </header>
   );

@@ -10,7 +10,20 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const customToken = await getAdminAuth().createCustomToken(session.user.id);
-
-  return NextResponse.json({ token: customToken });
+  try {
+    const customToken = await getAdminAuth().createCustomToken(session.user.id);
+    return NextResponse.json({ token: customToken });
+  } catch (err) {
+    // Almost always a placeholder/invalid FIREBASE_ADMIN_PRIVATE_KEY — log
+    // the real cause server-side, but keep the client-facing message
+    // pointed at the actual fix rather than leaking key material.
+    console.error("Failed to mint Firebase custom token:", err);
+    return NextResponse.json(
+      {
+        error:
+          "Couldn't create a Firebase sign-in token. FIREBASE_ADMIN_PROJECT_ID/CLIENT_EMAIL/PRIVATE_KEY in .env.local are likely still placeholders — see docs/setup-guide.md §1d.",
+      },
+      { status: 500 }
+    );
+  }
 }
