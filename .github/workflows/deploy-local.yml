@@ -1,0 +1,48 @@
+name: Deploy to local Docker Desktop
+
+# Runs ONLY on the self-hosted runner registered on this Mac
+# (~/actions-runners/fun-learning) — see docs/ci-cd.md for what that means
+# and the security tradeoffs of using a self-hosted runner on a public repo.
+#
+# Deliberately does NOT use actions/checkout: that action's default cleanup
+# runs `git clean -ffdx`, which would delete .env.local (git-ignored, but
+# not commit-ignored by that flag) on every run. Instead this job operates
+# directly on the existing working copy at $DEPLOY_PATH, which already has
+# a real .env.local — a plain `git fetch` + `git reset --hard` never
+# touches untracked/ignored files, so .env.local survives.
+#
+# Trigger is push-to-main only (never pull_request/pull_request_target) —
+# on a public repo, only people with write access can push to main, whereas
+# pull_request workflows can be opened by anyone via a fork. That asymmetry
+# is the primary safeguard here.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-local
+  cancel-in-progress: false
+
+env:
+  DEPLOY_PATH: /Users/padmanabanvaratharajan/Documents/personal/My Projects/fun-learning
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, fun-learning-local]
+    steps:
+      - name: Sync working copy to latest main
+        run: |
+          cd "$DEPLOY_PATH"
+          git fetch origin main
+          git reset --hard origin/main
+
+      - name: Rebuild and restart the container
+        run: |
+          cd "$DEPLOY_PATH"
+          docker compose --env-file .env.local up -d --build
+
+      - name: Verify it's serving
+        run: |
+          sleep 3
+          curl -sf -o /dev/null http://localhost:3000 && echo "OK: landing page responded"

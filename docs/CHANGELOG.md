@@ -1,0 +1,32 @@
+# Change History
+
+Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Update this file alongside any non-trivial change — it's the fast way to answer "when did X happen and why."
+
+## 2026-08-08
+
+### Added
+- Demo login (`CredentialsProvider` "demo" in `lib/auth.ts`, credentials in `lib/demoLogin.ts`) so the app is testable before a real Keycloak realm exists. Shown on the new `/help` page. **Must be removed before any real deployment** — flagged in `CLAUDE.md`.
+- `/help` and `/contact` public pages, richer landing page copy (feature highlights, "How it works"), shared `components/Footer.tsx`.
+- Dark mode: `darkMode: "class"` in Tailwind, CSS-variable theme tokens (`--background`, `--foreground`, `--surface`, `--surface-muted`, `--muted`, `--line`, `--line-strong`), no-flash bootstrap script in `app/layout.tsx`, `components/ThemeToggle.tsx`. Respects OS/browser preference by default, remembers manual overrides.
+- `docs/` folder (this document, plus architecture, user-guide, data-model, backup, setup-guide, ci-cd, mobile).
+- GitHub Actions CI workflow (cloud, lint/typecheck/build validation on every push/PR).
+- Self-hosted-runner deploy workflow for local Docker Desktop testing on pushes to `main`.
+- Capacitor scaffolding (config + npm scripts) for future iOS/Android wrapping — no platform builds run automatically.
+
+### Fixed
+- `lib/firebase-admin.ts` was eagerly parsing the Firebase service-account key at module-import time, which crashed `next build` (and any Docker build) whenever real credentials weren't present yet. Made `getAdminAuth()`/`getAdminDb()` lazy.
+- `components/ProfileProvider.tsx` and the dashboard/upload/quiz/revision pages had no error handling around Firestore calls — a failure (e.g. placeholder Firebase config) left the UI stuck on an infinite loading spinner with no explanation. Now surfaces a specific, actionable error message.
+- Landing/meta copy changed from grade-specific wording ("Grade 3 CBSE and Grade 6 IGCSE") to "school kids" for public-facing copy (landing page, meta description, manifest, README). Internal docs (`CLAUDE.md`, data model) still document the actual grade values since they're a real schema constraint.
+
+## 2026-08-08 (earlier)
+
+### Added
+- Docker containerization: multi-stage `Dockerfile` (Node 22 Alpine, `output: "standalone"`), `.dockerignore`, `docker-compose.yml` wiring `.env.local` as both build args (`NEXT_PUBLIC_*`, baked into the client bundle) and runtime env.
+- README Docker section documenting the `--env-file .env.local` requirement.
+
+## 2026-08-08 (initial)
+
+### Added
+- Initial MVP scaffold: Next.js 14 App Router + TypeScript + Tailwind, NextAuth + Keycloak, Firebase client/admin split with a custom-token bridge for Firestore rule enforcement, Gemini-backed OCR/quiz/flashcard generation, gamified dashboard (profiles, XP, streaks), upload flow, quiz engine with confetti, Exam Revision Hub, PWA manifest/icons/install prompt.
+- `firestore.rules`, `storage.rules`, `firestore.indexes.json`.
+- `CLAUDE.md` (stack, code standards, child-friendly design system, known follow-ups).

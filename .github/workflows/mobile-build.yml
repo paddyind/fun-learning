@@ -1,0 +1,90 @@
+name: Mobile build (manual)
+
+# Manual trigger ONLY — never runs on push/PR. Per-project decision: mobile
+# builds are opt-in, not part of the default pipeline, until there's an
+# actual need for a device/store build. See docs/mobile.md.
+#
+# This produces an unsigned debug APK (Android) and an unsigned Xcode
+# archive (iOS) — enough to sideload onto a test device or run in a
+# simulator, NOT a store-ready signed artifact. Signing requires secrets
+# (a keystore for Android, a certificate/provisioning profile for iOS) that
+# are deliberately not configured — add them only when you actually need to
+# ship to TestFlight/Play Console, not before.
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Which platform to build"
+        required: true
+        type: choice
+        options: [android, ios, both]
+        default: android
+      server_url:
+        description: "URL the native WebView should load (a real deployed instance, not localhost)"
+        required: true
+        type: string
+
+jobs:
+  android:
+    if: ${{ inputs.platform == 'android' || inputs.platform == 'both' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
+      - run: npm ci
+
+      - name: Sync Capacitor
+        env:
+          CAPACITOR_SERVER_URL: ${{ inputs.server_url }}
+        run: npx cap sync android
+
+      - name: Build unsigned debug APK
+        run: cd android && ./gradlew assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fun-learning-debug.apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
+  ios:
+    if: ${{ inputs.platform == 'ios' || inputs.platform == 'both' }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: Sync Capacitor
+        env:
+          CAPACITOR_SERVER_URL: ${{ inputs.server_url }}
+        run: npx cap sync ios
+
+      - name: Install CocoaPods dependencies
+        run: cd ios/App && pod install
+
+      - name: Build unsigned (simulator) archive
+        run: |
+          cd ios/App
+          xcodebuild -workspace App.xcworkspace -scheme App \
+            -sdk iphonesimulator -configuration Debug \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fun-learning-ios-simulator-build
+          path: ios/App/build/Build/Products/Debug-iphonesimulator

@@ -1,0 +1,35 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(parentUserId) {
+      return request.auth != null && request.auth.uid == parentUserId;
+    }
+
+    function ownsProfile(profileId) {
+      return request.auth != null &&
+        get(/databases/$(database)/documents/profiles/$(profileId)).data.parent_user_id == request.auth.uid;
+    }
+
+    match /profiles/{profileId} {
+      allow read, update, delete: if isOwner(resource.data.parent_user_id);
+      allow create: if request.auth != null && request.resource.data.parent_user_id == request.auth.uid;
+    }
+
+    match /subjects/{subjectId} {
+      allow read, update, delete: if ownsProfile(resource.data.profile_id);
+      allow create: if ownsProfile(request.resource.data.profile_id);
+    }
+
+    match /study_materials/{materialId} {
+      allow read, update, delete: if ownsProfile(resource.data.profile_id);
+      allow create: if ownsProfile(request.resource.data.profile_id);
+    }
+
+    match /quiz_results/{resultId} {
+      allow read, update, delete: if ownsProfile(resource.data.profile_id);
+      allow create: if ownsProfile(request.resource.data.profile_id);
+    }
+  }
+}

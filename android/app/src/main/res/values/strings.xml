@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Fun Learning</string>
+    <string name="title_activity_main">Fun Learning</string>
+    <string name="package_name">app.funlearning.mobile</string>
+    <string name="custom_url_scheme">app.funlearning.mobile</string>
+</resources>
