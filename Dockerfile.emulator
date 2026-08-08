@@ -1,0 +1,33 @@
+# Firebase Local Emulator Suite — Firestore + Storage only.
+#
+# Why this exists: Firebase now requires the Blaze (pay-as-you-go) plan to
+# enable real Cloud Storage, even for $0 actual usage. Rather than require
+# a card on file just to test locally, Firestore and Storage are emulated
+# here — genuinely free, no cloud project usage at all. Firebase Auth stays
+# real (see lib/firebase.ts) since Auth alone doesn't require Blaze, and the
+# Keycloak/demo -> Firebase custom-token bridge needs real Auth to redeem
+# custom tokens against.
+#
+# The Firestore emulator is JVM-based and firebase-tools now requires
+# JRE 21+ — Debian bookworm's default `openjdk-17-jre` package is too old,
+# so this starts from Eclipse Temurin's JRE 21 image and layers Node on top
+# (rather than the reverse) to get a JRE version new enough.
+FROM eclipse-temurin:21-jre-jammy
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
+  && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+  && apt-get install -y --no-install-recommends nodejs \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g firebase-tools
+
+WORKDIR /emulator
+COPY firebase.json firestore.rules firestore.indexes.json storage.rules ./
+
+ARG FIREBASE_PROJECT_ID=demo-fun-learning
+ENV FIREBASE_PROJECT_ID=$FIREBASE_PROJECT_ID
+
+EXPOSE 8080 9199 4000
+
+CMD firebase emulators:start --only firestore,storage --project "$FIREBASE_PROJECT_ID"

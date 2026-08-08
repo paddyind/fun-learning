@@ -6,7 +6,7 @@
 - **Auth:** NextAuth.js v4, two providers:
   - `KeycloakProvider` — the real, intended login path (OIDC).
   - `CredentialsProvider` ("demo") — a fixed-credential local-testing fallback (`lib/demoLogin.ts`), shown on `/help`. **Must be removed before any real deployment** (see `CLAUDE.md` → Known follow-ups).
-- **Database/Storage:** Firebase — Firestore for data, Storage for uploaded book-page images.
+- **Database/Storage:** Firebase — Firestore for data, Storage for uploaded book-page images. **Emulated locally by default** (`NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true`, `Dockerfile.emulator`) since real Cloud Storage now requires the Blaze plan even at $0 usage — see "Emulators vs. real Firebase" below.
 - **AI:** Google Gemini via `@google/genai`, wrapped in `lib/gemini.ts`. Handles OCR extraction (`extractStudyMaterial`), quiz generation (`generateQuizQuestions`), and flashcard generation (`generateFlashcards`).
 - **PWA:** manual `public/manifest.json` + meta tags, no service worker yet (see Follow-ups in `CLAUDE.md`).
 - **Containerization:** multi-stage `Dockerfile` producing a Next.js `output: "standalone"` image, orchestrated locally via `docker-compose.yml`.
@@ -28,6 +28,25 @@ Keycloak/demo login
 ```
 
 This is why `FIREBASE_ADMIN_*` env vars exist even though the app "just" uses Keycloak for login — without them, Firestore rules have no way to verify who's asking.
+
+Note this bridge still runs, and still matters, when Firestore/Storage are emulated (see below) — only the Firestore/Storage *data layer* is emulated, Auth is always real, so `request.auth.uid` still needs to be populated the same way.
+
+## Emulators vs. real Firebase
+
+Firestore and Storage run as local emulators by default (`Dockerfile.emulator`, a `docker-compose.yml` service named `firebase-emulator`, config in `firebase.json`) — this is a cost workaround, not an architectural preference: Google now requires the Blaze plan for real Cloud Storage even at $0 usage, and emulating avoids that entirely for local testing. Firebase Auth is never emulated — it stays real, since Auth alone doesn't require Blaze and the custom-token bridge above needs a real Auth backend.
+
+`lib/firebase.ts` connects to the emulators conditionally (`env.useFirebaseEmulators`, from `NEXT_PUBLIC_USE_FIREBASE_EMULATORS`) and — same problem the Keycloak/Docker networking already had — the emulator container is reachable at a **different hostname depending on where the code executes**:
+
+```
+Server-side (inside the app's own Docker container) → firebase-emulator:8080 / :9199
+                                                         (docker-compose service name)
+Client-side (the user's browser, outside any container) → localhost:8080 / :9199
+                                                         (published container ports)
+```
+
+`lib/firebase.ts` picks between these via `typeof window === "undefined"`. If Firestore/Storage calls start failing specifically when made from a Server Component (they aren't today — all Firestore/Storage client-SDK calls happen from `"use client"` components' `useEffect` hooks, i.e. browser-only), that hostname split is the first thing to check.
+
+Switching to real Firestore/Storage later (`NEXT_PUBLIC_USE_FIREBASE_EMULATORS=false`) requires enabling them for real in the Firebase console (Storage will prompt for Blaze) and deploying `firestore.rules`/`storage.rules`/`firestore.indexes.json` — see `docs/setup-guide.md` §1f.
 
 ## Two Firestore access paths — client SDK (rule-enforced) vs admin SDK (bypasses rules)
 

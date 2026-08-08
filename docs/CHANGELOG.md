@@ -2,6 +2,12 @@
 
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Update this file alongside any non-trivial change — it's the fast way to answer "when did X happen and why."
 
+## 2026-08-08 (Firebase emulators)
+
+### Added
+- Firestore + Storage now run as local emulators by default (`NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true`, `Dockerfile.emulator`, `firebase.json`, `.firebaserc`, new `firebase-emulator` service in `docker-compose.yml`). Reason: Google now requires the Blaze (pay-as-you-go) plan to enable real Cloud Storage, even for $0 usage — emulating avoids needing a card on file just to test locally. Firebase Auth stays real (doesn't require Blaze, and the custom-token bridge needs it). `lib/firebase.ts` resolves the emulator hostname differently for server-side (docker-compose service name) vs. client-side (localhost) code — same class of problem as the Keycloak Docker-networking split.
+- Emulator UI at `http://localhost:4000` for inspecting local Firestore/Storage data while testing.
+
 ## 2026-08-08 (self-hosted runner fix)
 
 ### Fixed

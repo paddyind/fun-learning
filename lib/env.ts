@@ -22,4 +22,8 @@ export const env = {
     ),
     appId: required("NEXT_PUBLIC_FIREBASE_APP_ID", process.env.NEXT_PUBLIC_FIREBASE_APP_ID),
   },
+  // Local-testing-only: routes Firestore/Storage to the emulator suite
+  // instead of real Firebase (which now requires the Blaze plan for
+  // Storage). See lib/firebase.ts and docs/setup-guide.md.
+  useFirebaseEmulators: process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATORS === "true",
 };

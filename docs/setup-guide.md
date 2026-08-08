@@ -8,8 +8,8 @@ The app builds and boots with the placeholder values already in `.env.local`, bu
 |---|---|---|
 | Landing page, PWA install, dashboard shell | nothing | ✅ works |
 | Sign-in | Keycloak **or** the demo account (see `/help`) | ✅ works today via demo login |
-| Kid profiles, subjects, quiz results, uploaded notes | **real Firebase project** | ❌ fails — this is what you're hitting now |
-| Photo → notes (OCR), AI quiz generation, flashcards | **real Gemini API key** | ❌ fails |
+| Kid profiles, subjects, quiz results, uploaded notes | Firebase project (Auth real, Firestore/Storage emulated by default) | ❌ fails until you complete §1 |
+| Photo → notes (OCR), AI quiz generation, flashcards | **real Gemini API key** | ❌ fails until you complete §2 |
 
 So: **Firebase first** (unblocks profiles/data), **Gemini second** (unblocks the AI features). Keycloak is optional while you're testing locally — the demo login (`/help`) bypasses it.
 
@@ -17,19 +17,21 @@ So: **Firebase first** (unblocks profiles/data), **Gemini second** (unblocks the
 
 ## 1. Firebase project (required)
 
+### Why Firestore/Storage are emulated by default
+
+Google now requires the **Blaze (pay-as-you-go)** plan to enable real Cloud Storage — even for $0 actual usage, a card has to be on file. Rather than require that just to test locally, this project runs **Firestore and Storage as local emulators** (`Dockerfile.emulator`, `firebase.json`) by default — genuinely free, no card, ever. **Firebase Auth stays real** (Auth alone doesn't require Blaze), since the Keycloak/demo → Firebase custom-token bridge (see `CLAUDE.md` → "Env / secrets architecture") needs a real Auth backend to redeem custom tokens against.
+
+If you later want real Firestore/Storage (e.g. before a real deployment), see §1f.
+
 ### 1a. Create the project
 1. Go to the [Firebase Console](https://console.firebase.google.com/) → **Add project**.
 2. Name it (e.g. `fun-learning-dev`). Google Analytics is optional — skip it for a dev project.
 
-### 1b. Enable Firestore
-1. In the left nav: **Build → Firestore Database → Create database**.
-2. Choose **production mode** (we ship real security rules, not test-mode-open rules) and pick a region close to you.
+### 1b. Enable Authentication
+1. **Build → Authentication → Get started**.
+2. You don't need to enable any specific sign-in provider (Email/Password, Google, etc.) — the app only uses custom-token sign-in, which works once Authentication itself is initialized for the project.
 
-### 1c. Enable Storage
-1. **Build → Storage → Get started**.
-2. Same region as Firestore is fine. Production mode again.
-
-### 1d. Register a Web app → get the 6 `NEXT_PUBLIC_FIREBASE_*` values
+### 1c. Register a Web app → get the 6 `NEXT_PUBLIC_FIREBASE_*` values
 1. Project Overview → **⚙ Project settings → General** → scroll to "Your apps" → **Add app → Web** (`</>` icon).
 2. Give it any nickname, skip Firebase Hosting.
 3. Firebase shows a `firebaseConfig` object — copy each value into `.env.local`:
@@ -43,8 +45,8 @@ So: **Firebase first** (unblocks profiles/data), **Gemini second** (unblocks the
    | `messagingSenderId` | `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` |
    | `appId` | `NEXT_PUBLIC_FIREBASE_APP_ID` |
 
-### 1e. Generate a service account key → get the 3 `FIREBASE_ADMIN_*` values
-This is what lets the app mint a Firebase custom token from your Keycloak/demo session (see `CLAUDE.md` → "Env / secrets architecture" for why this bridge exists).
+### 1d. Generate a service account key → get the 3 `FIREBASE_ADMIN_*` values
+This is what lets the app mint a Firebase custom token from your Keycloak/demo session.
 
 1. **⚙ Project settings → Service accounts** tab.
 2. **Generate new private key** → downloads a JSON file. Treat it like a password — it's full admin access to your Firebase project.
@@ -56,16 +58,16 @@ This is what lets the app mint a Firebase custom token from your Keycloak/demo s
    | `client_email` | `FIREBASE_ADMIN_CLIENT_EMAIL` |
    | `private_key` | `FIREBASE_ADMIN_PRIVATE_KEY` (keep the quotes and `\n` sequences exactly as in the JSON) |
 
-### 1f. Deploy the security rules and indexes
-From the project root (installs the Firebase CLI on first run if you don't have it):
+### 1e. Leave `NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true`
+Already set in `.env.local` by default. This routes Firestore/Storage to the local emulator containers (`firebase-emulator` service in `docker-compose.yml`) instead of the real project — no rules deployment needed for local testing, since the emulator loads `firestore.rules`/`storage.rules` directly from the repo.
 
-```bash
-npx firebase-tools login
-npx firebase-tools use --add          # pick your fun-learning-dev project
-npx firebase-tools deploy --only firestore:rules,firestore:indexes,storage
-```
+Emulator data is **ephemeral** — it resets every time the `firebase-emulator` container restarts. That's fine for testing, not for anything you want to keep. Inspect/browse data live at `http://localhost:4000` (Emulator UI) once the containers are running.
 
-Without this step, Firestore has **no rules deployed yet**, which typically defaults to deny-all in production mode — profile creation will fail with a `permission-denied` error even with correct credentials.
+### 1f. (Later) Switching to real Firestore/Storage
+When you're ready to stop emulating (e.g. before a real deployment):
+1. Enable Firestore (**Build → Firestore Database → Create database**, production mode) and Storage (**Build → Storage → Get started**) in the console — Storage will prompt you to upgrade to Blaze at this point.
+2. Deploy the security rules: `npx firebase-tools login && npx firebase-tools use --add && npx firebase-tools deploy --only firestore:rules,firestore:indexes,storage`.
+3. Set `NEXT_PUBLIC_USE_FIREBASE_EMULATORS=false` in `.env.local` and rebuild.
 
 ---
 
@@ -91,7 +93,9 @@ Skip this entirely while testing locally — use the **demo account** shown on `
 docker compose --env-file .env.local up -d --build
 ```
 
-(Running locally with `npm run dev` instead picks up `.env.local` automatically on restart — no rebuild step needed there.)
+This now also starts the `firebase-emulator` container (Firestore + Storage). Give it a few seconds to finish starting before testing — check `docker compose logs firebase-emulator` if the app can't reach it right away.
+
+(Running locally with `npm run dev` instead picks up `.env.local` automatically on restart — no rebuild step needed there, but you'd need to run `firebase emulators:start --only firestore,storage` yourself in a separate terminal for emulator mode to work outside Docker.)
 
 ---
 
@@ -99,5 +103,5 @@ docker compose --env-file .env.local up -d --build
 
 1. Open `http://localhost:3000`, sign in with the demo account (`/help` has the credentials).
 2. You should land on the profile picker instead of the "Something needs setting up" error card. If you still see that card, read its message — it now tells you specifically whether it's a Firebase config problem or a rules/permission problem (see `components/ProfileProvider.tsx`'s `friendlyFirebaseError`).
-3. Create a profile → pick a subject → **Upload Notes** with a real textbook photo → confirm you get back extracted text (proves Gemini + Storage + Firestore write all work).
+3. Create a profile → pick a subject → **Upload Notes** with a real textbook photo → confirm you get back extracted text (proves Gemini + Storage + Firestore write all work). Check `http://localhost:4000` (Emulator UI) to see the data land in real time.
 4. **Take Challenge** on that subject → confirm 5 questions generate and confetti fires on a correct answer.
