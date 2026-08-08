@@ -53,6 +53,6 @@ Client-side Firestore/Storage calls (`lib/db.ts`, used from components) go throu
 Full walkthrough with exact console steps: [`docs/setup-guide.md`](./docs/setup-guide.md). Short version:
 
 1. `npm install`
-2. Fill in `.env.local` — Firebase (client config + service account) and Gemini are required for the app to actually *work*; Keycloak is optional while testing locally (use the demo account on `/help` instead).
-3. Deploy `firestore.rules`, `firestore.indexes.json`, and `storage.rules` to your Firebase project (`npx firebase-tools deploy --only firestore:rules,firestore:indexes,storage`).
+2. Fill in `.env.local` — Firebase (client config + service account, for real Auth) and Gemini are required for the app to actually *work*; Keycloak is optional while testing locally (use the demo account on `/help` instead — clicking "Sign in with Keycloak" without a real `KEYCLOAK_ISSUER` fails with `?error=OAuthSignin`, which `SignInCard.tsx` explains and redirects toward the demo form automatically).
+3. Firestore/Storage are emulated by default (`NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true`) — no rules deployment needed for local testing, `docker compose up` starts the emulator too. Only deploy `firestore.rules`/`firestore.indexes.json`/`storage.rules` for real (`npx firebase-tools deploy --only firestore:rules,firestore:indexes,storage`) once you switch that flag to `false`.
 4. `npm run dev`, or `docker compose --env-file .env.local up -d --build` (see `docs/ci-cd.md` for the automated version of this on push).

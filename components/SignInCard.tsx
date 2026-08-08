@@ -6,8 +6,29 @@ import { KeyRound, Loader2, User } from "lucide-react";
 import { DEMO_LOGIN } from "@/lib/demoLogin";
 import Button from "@/components/ui/Button";
 
+// NextAuth passes back a coarse error code via ?error=, not a message.
+// OAuthSignin/OAuthCallback/Callback mean Keycloak itself is unreachable or
+// misconfigured (e.g. KEYCLOAK_ISSUER is still the .env.local placeholder)
+// — that's expected until real Keycloak is set up, and the demo account is
+// the deliberate fallback, so say that instead of a generic "check your
+// details" (which reads like a password typo, not a missing server).
+function describeAuthError(error: string): { message: string; isKeycloak: boolean } {
+  if (["OAuthSignin", "OAuthCallback", "Callback", "OAuthCreateAccount"].includes(error)) {
+    return {
+      message:
+        "Keycloak isn't reachable yet — that's expected until it's configured (see docs/setup-guide.md). Use the demo account below instead.",
+      isKeycloak: true,
+    };
+  }
+  if (error === "CredentialsSignin") {
+    return { message: "That demo email/password combo wasn't recognized — check /help for the exact values.", isKeycloak: false };
+  }
+  return { message: "That didn't work — check your details and try again.", isKeycloak: false };
+}
+
 export default function SignInCard({ error }: { error?: string }) {
-  const [showDemo, setShowDemo] = useState(false);
+  const authError = error ? describeAuthError(error) : null;
+  const [showDemo, setShowDemo] = useState(authError?.isKeycloak ?? false);
   const [email, setEmail] = useState(DEMO_LOGIN.email);
   const [password, setPassword] = useState(DEMO_LOGIN.password);
   const [loading, setLoading] = useState<"keycloak" | "demo" | null>(null);
@@ -35,10 +56,8 @@ export default function SignInCard({ error }: { error?: string }) {
         Sign in with Keycloak
       </Button>
 
-      {error && (
-        <p className="mt-3 text-center text-sm font-semibold text-red-500 dark:text-red-400">
-          That didn&apos;t work — check your details and try again.
-        </p>
+      {authError && (
+        <p className="mt-3 text-center text-sm font-semibold text-red-500 dark:text-red-400">{authError.message}</p>
       )}
 
       {!showDemo ? (

@@ -83,6 +83,10 @@ When you're ready to stop emulating (e.g. before a real deployment):
 
 Skip this entirely while testing locally — use the **demo account** shown on `/help` instead. Set up real Keycloak only once you're ready to onboard real families; that's a separate task (realm, client, redirect URIs matching `NEXTAUTH_URL`) not covered here since it's not blocking local testing.
 
+**Expected:** clicking "Sign in with Keycloak" on the landing page while `KEYCLOAK_ISSUER` is still the `.env.local` placeholder will fail with a redirect to `?error=OAuthSignin` — NextAuth can't reach a Keycloak server that doesn't exist yet. `components/SignInCard.tsx` recognizes this specific error and tells the user to use the demo account instead of showing a generic "check your details" message; it also auto-expands the demo login form when this happens. This is not a bug to fix, just documenting the expected flow.
+
+If/when you want to test the *real* Keycloak OIDC flow locally (not just the demo bypass) — e.g. before productizing — a local Keycloak instance via Docker (realm import, client registration matching `KEYCLOAK_CLIENT_ID`/`NEXTAUTH_URL`) is the same class of solution as the Firebase emulator setup above, just not built yet. Ask for it when you actually need it.
+
 ---
 
 ## 4. Apply the changes

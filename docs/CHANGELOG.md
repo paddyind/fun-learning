@@ -2,6 +2,12 @@
 
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Update this file alongside any non-trivial change — it's the fast way to answer "when did X happen and why."
 
+## 2026-08-08 (sign-in error clarity)
+
+### Fixed
+- Clicking "Sign in with Keycloak" without a real `KEYCLOAK_ISSUER` configured redirected back with `?error=OAuthSignin`, shown as a generic "check your details and try again" — misleading, since there's nothing to check, Keycloak just isn't reachable yet. `components/SignInCard.tsx` now recognizes `OAuthSignin`/`OAuthCallback`/`Callback`/`OAuthCreateAccount` and explains that Keycloak isn't set up, auto-expanding the demo login form as the fallback. `CredentialsSignin` (wrong demo password) also gets its own clearer message.
+- `docs/setup-guide.md` §3 and `CLAUDE.md`'s Local setup section now document this as expected behavior, and note that rules deployment (`firebase-tools deploy`) is only needed once `NEXT_PUBLIC_USE_FIREBASE_EMULATORS` is switched to `false` — not for local testing with emulators.
+
 ## 2026-08-08 (dashboard dead-end fix)
 
 ### Fixed
