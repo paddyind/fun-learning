@@ -2,6 +2,11 @@
 
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Update this file alongside any non-trivial change — it's the fast way to answer "when did X happen and why."
 
+## 2026-08-08 (self-hosted runner fix)
+
+### Fixed
+- `deploy-local.yml` failed twice on first real runs: (1) `docker compose --env-file` came back "unknown flag" because an isolated `DOCKER_CONFIG` didn't carry over `cli-plugins/`; (2) `error getting credentials ... keychain cannot be accessed` because the runner's launchd background session has no GUI/keychain access, and Docker's registry resolution hits the credential store even for public images. Fixed via an isolated Docker config (`~/actions-runners/fun-learning/.docker`, no `credsStore`, `cli-plugins/` copied over) loaded through the runner's `.env` file, plus pre-pulling the Dockerfile's base images interactively so resolution is a local cache hit, not a fresh registry round-trip. Full writeup: `docs/ci-cd.md`.
+
 ## 2026-08-08
 
 ### Added

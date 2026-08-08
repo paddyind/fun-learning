@@ -28,6 +28,28 @@ On every push to `main` (or a manual `workflow_dispatch`), a runner **installed 
 - Check it's alive: `gh api repos/paddyind/fun-learning/actions/runners --jq '.runners[] | {name,status,busy}'`.
 - Manage it directly: `cd ~/actions-runners/fun-learning && ./svc.sh status|stop|start|uninstall`.
 
+### The Docker-in-launchd gotcha (already fixed, but know this if it resurfaces)
+
+The runner's launchd service is a background session with no GUI/keychain access ("current session does not allow user interaction"). Two separate problems this caused, both already fixed:
+
+1. **`docker compose --env-file` → `unknown flag`.** The runner's minimal environment didn't pick up Docker Desktop's CLI plugin directory correctly once `DOCKER_CONFIG` was overridden (see next point) without also carrying over `cli-plugins/`. Fixed by copying `~/.docker/cli-plugins` into the isolated config dir below.
+2. **`error getting credentials ... keychain cannot be accessed`.** Docker/BuildKit resolves image references (`FROM node:22-alpine`, and the `# syntax=docker/dockerfile:1` frontend image) by checking the registry for the current manifest digest, which goes through the configured credential store (`credsStore: "desktop"` in `~/.docker/config.json`) even for public, unauthenticated images — and that credential helper needs keychain access the background session doesn't have.
+
+**Fix:** the runner gets its own isolated Docker config via a `.env` file GitHub's runner auto-loads for every job:
+
+```
+~/actions-runners/fun-learning/.env:
+  DOCKER_CONFIG=/Users/padmanabanvaratharajan/actions-runners/fun-learning/.docker
+
+~/actions-runners/fun-learning/.docker/
+  config.json       — {} (no credsStore, so no credential-helper calls at all)
+  cli-plugins/       — copied from ~/.docker/cli-plugins (needed for `docker compose` to resolve as a plugin)
+```
+
+With no `credsStore` configured, Docker treats docker.io as anonymous — but resolution still needs the referenced image manifest reachable *without* a fresh registry round-trip prompting for credentials it doesn't have a store to check. In practice this works because `node:22-alpine` and `docker/dockerfile:1` are already pulled into the shared local Docker image cache (via an ordinary interactive `docker pull`) — resolving a tag that's already present locally doesn't hit the same credential-lookup path a cache-miss pull would. **If the Dockerfile's base image ever changes, pull the new tag once interactively (in a normal terminal, where keychain access works) before the next `deploy-local` run** — otherwise this same failure resurfaces for the new tag.
+
+This only affects the isolated runner config — your normal interactive `docker`/`docker compose` usage on this Mac is untouched (`~/.docker/config.json` was never modified).
+
 ### Why it doesn't use `actions/checkout`
 
 `actions/checkout`'s default cleanup step runs `git clean -ffdx`, which deletes **git-ignored files too** (that's what the extra `f`/`x` flags do) — including `.env.local`. Since `.env.local` holds real secrets that only exist on this machine (never committed), letting a workflow silently delete it on every run would be a bad time. Instead, the job runs plain `git fetch`/`git reset --hard` directly against the existing working copy at a hardcoded path — that combo only ever touches *tracked* files, so `.env.local` survives untouched.
