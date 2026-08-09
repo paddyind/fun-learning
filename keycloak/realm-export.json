@@ -1,0 +1,42 @@
+{
+  "id": "fun-learning",
+  "realm": "fun-learning",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "clients": [
+    {
+      "clientId": "fun-learning-app",
+      "name": "Fun Learning",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "local-dev-secret-do-not-use-in-prod",
+      "redirectUris": ["http://localhost:3000/*"],
+      "webOrigins": ["http://localhost:3000"],
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false
+    }
+  ],
+  "users": [
+    {
+      "username": "parent1",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Parent",
+      "lastName": "One",
+      "email": "parent1@example.com",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "parent12345",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

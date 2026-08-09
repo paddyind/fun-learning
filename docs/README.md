@@ -2,7 +2,7 @@
 
 Living documentation, updated alongside the code as the app evolves. If you change something these docs describe, update the doc in the same change — see `docs/CHANGELOG.md` for the running history of what's changed and why.
 
-- **[setup-guide.md](./setup-guide.md)** — what to configure (Firebase, Gemini, optionally Keycloak) before the app is actually testable, not just buildable.
+- **[setup-guide.md](./setup-guide.md)** — what to configure (Firebase, Gemini — Keycloak is included and pre-configured) before the app is actually testable, not just buildable.
 - **[architecture.md](./architecture.md)** — the stack, the Keycloak/demo-login → Firebase custom-token identity bridge, request flows for upload/OCR and quiz generation, directory map.
 - **[data-model.md](./data-model.md)** — Firestore collections, relationships, indexes, security rules summary.
 - **[user-guide.md](./user-guide.md)** — how to actually use the app (sign in, profiles, upload, quizzes, revision hub, dark mode).

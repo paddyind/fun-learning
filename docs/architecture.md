@@ -4,7 +4,7 @@
 
 - **Framework:** Next.js 14 (App Router, TypeScript, Tailwind CSS). No `src/` directory — `app/`, `lib/`, `components/` sit at repo root.
 - **Auth:** NextAuth.js v4, two providers:
-  - `KeycloakProvider` — the real, intended login path (OIDC).
+  - `KeycloakProvider` — the real, intended login path (OIDC). A local Keycloak instance is included for testing (`docker-compose.yml`'s `keycloak` service, realm imported from `keycloak/realm-export.json`) — see "Local Keycloak" below.
   - `CredentialsProvider` ("demo") — a fixed-credential local-testing fallback (`lib/demoLogin.ts`), shown on `/help`. **Must be removed before any real deployment** (see `CLAUDE.md` → Known follow-ups).
 - **Database/Storage:** Firebase — Firestore for data, Storage for uploaded book-page images. **Emulated locally by default** (`NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true`, `Dockerfile.emulator`) since real Cloud Storage now requires the Blaze plan even at $0 usage — see "Emulators vs. real Firebase" below.
 - **AI:** Google Gemini via `@google/genai`, wrapped in `lib/gemini.ts`. Handles OCR extraction (`extractStudyMaterial`), quiz generation (`generateQuizQuestions`), and flashcard generation (`generateFlashcards`).
@@ -35,7 +35,7 @@ Note this bridge still runs, and still matters, when Firestore/Storage are emula
 
 Firestore and Storage run as local emulators by default (`Dockerfile.emulator`, a `docker-compose.yml` service named `firebase-emulator`, config in `firebase.json`) — this is a cost workaround, not an architectural preference: Google now requires the Blaze plan for real Cloud Storage even at $0 usage, and emulating avoids that entirely for local testing. Firebase Auth is never emulated — it stays real, since Auth alone doesn't require Blaze and the custom-token bridge above needs a real Auth backend.
 
-`lib/firebase.ts` connects to the emulators conditionally (`env.useFirebaseEmulators`, from `NEXT_PUBLIC_USE_FIREBASE_EMULATORS`) and — same problem the Keycloak/Docker networking already had — the emulator container is reachable at a **different hostname depending on where the code executes**:
+`lib/firebase.ts` connects to the emulators conditionally (`env.useFirebaseEmulators`, from `NEXT_PUBLIC_USE_FIREBASE_EMULATORS`) and — the same class of problem local Keycloak has (see below) — the emulator container is reachable at a **different hostname depending on where the code executes**:
 
 ```
 Server-side (inside the app's own Docker container) → firebase-emulator:8080 / :9199
@@ -47,6 +47,23 @@ Client-side (the user's browser, outside any container) → localhost:8080 / :91
 `lib/firebase.ts` picks between these via `typeof window === "undefined"`. If Firestore/Storage calls start failing specifically when made from a Server Component (they aren't today — all Firestore/Storage client-SDK calls happen from `"use client"` components' `useEffect` hooks, i.e. browser-only), that hostname split is the first thing to check.
 
 Switching to real Firestore/Storage later (`NEXT_PUBLIC_USE_FIREBASE_EMULATORS=false`) requires enabling them for real in the Firebase console (Storage will prompt for Blaze) and deploying `firestore.rules`/`storage.rules`/`firestore.indexes.json` — see `docs/setup-guide.md` §1f.
+
+## Local Keycloak (and the dual-hostname problem, solved differently here)
+
+`docker-compose.yml`'s `keycloak` service runs a real Keycloak instance for local testing, realm/client/test-user pre-imported from `keycloak/realm-export.json` (realm `fun-learning`, client `fun-learning-app`, user `parent1`/`parent12345`). Port **8180**, not Keycloak's default 8080, because the Firestore emulator already owns 8080.
+
+This has the same *shape* of problem as the Firebase emulator (browser and the app's own server need to reach the same service, but naively would use different hostnames), but it can't be solved the same way (a `typeof window` branch), because **Keycloak itself embeds a hostname in the tokens it issues** (the `iss` claim) — if the browser and the server reached Keycloak via two different hostnames, Keycloak would report two different issuers, and NextAuth would reject the mismatch as a possible token-substitution attack (it's supposed to).
+
+Fixed instead by making both sides use the *same* hostname:
+
+- Keycloak is configured with a fixed `KC_HOSTNAME=localhost` (+ `KC_HOSTNAME_PORT=8180`), so it always reports `iss` as `http://localhost:8180/realms/fun-learning` no matter which network path a request arrived on.
+- The `web` service gets `extra_hosts: ["localhost:host-gateway"]` in `docker-compose.yml` — Docker's portable mechanism for making `localhost` *inside* a container resolve to the host machine. This means the app container's own server-side requests (NextAuth's OIDC discovery fetch, the authorization-code → token exchange, the userinfo call) reach Keycloak via literally the same `http://localhost:8180` URL the browser uses, routed through the host's published port instead of the docker-compose service name.
+
+One consequence worth knowing: this remaps `localhost` for every process in the `web` container, not just Keycloak calls. Verified safe here because nothing else in the app makes a self-referential `localhost` call from server-side code (`NEXTAUTH_URL=http://localhost:3000` is used by NextAuth to construct redirect URLs as a string, not to dial itself). If a future feature ever needs the app container to call *itself* by hostname, don't use `localhost` for that — use the container's own address or a dedicated internal route.
+
+Verified end-to-end (not just discovery): a full authorization-code + PKCE login as `parent1`, followed by the server-side token exchange, a session with the real Keycloak identity, and a successful `/api/firebase-token` custom-token mint — all working through this hostname setup.
+
+Setting up *real* Keycloak (a production realm, not this local one) is a separate, later task — see `docs/setup-guide.md` §3.
 
 ## Two Firestore access paths — client SDK (rule-enforced) vs admin SDK (bypasses rules)
 

@@ -2,6 +2,15 @@
 
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Update this file alongside any non-trivial change — it's the fast way to answer "when did X happen and why."
 
+## 2026-08-09 (local Keycloak + real Firebase credentials)
+
+### Added
+- Real Firebase credentials filled into `.env.local` (client config + service account) — the `/api/firebase-token` custom-token bridge now works for real, verified end-to-end (custom token → real Firebase ID token exchange, both succeeding).
+- Local Keycloak (`docker-compose.yml`'s `keycloak` service, `keycloak/realm-export.json`) — realm `fun-learning`, client `fun-learning-app`, test user `parent1`/`parent12345` pre-imported. Real OIDC login (authorization code + PKCE) now works locally with zero setup, verified end-to-end via a full simulated browser flow (login form submission → callback → server-side token exchange → session with real Keycloak identity).
+- Solved the same class of dual-hostname problem the Firebase emulator had, but differently: Keycloak embeds a hostname in its issued tokens' `iss` claim, so the browser and the app's own server must resolve Keycloak via the *same* hostname or token validation fails. Fixed via `KC_HOSTNAME=localhost` (fixed on the Keycloak container) + `extra_hosts: ["localhost:host-gateway"]` (on the `web` service, making `localhost` inside that container resolve to the host machine) — see `docs/architecture.md` → "Local Keycloak".
+- Port 8180 for Keycloak (not its default 8080) to avoid clashing with the Firestore emulator's port.
+- Generated a real `NEXTAUTH_SECRET` (was a placeholder string).
+
 ## 2026-08-08 (sign-in error clarity)
 
 ### Fixed

@@ -2,10 +2,10 @@
 
 ## Signing in
 
-Fun Learning is meant for a parent (or teacher) to sign in once, then set up one profile per child. Two ways in:
+Fun Learning is meant for a parent (or teacher) to sign in once, then set up one profile per child. Two ways in, both working locally out of the box:
 
-- **Keycloak** — the real login path, once your organization's Keycloak realm is configured (see `docs/setup-guide.md`).
-- **Demo account** — for trying the app out before Keycloak is set up. Credentials are on the `/help` page. This is local-testing-only and gets removed before any real launch.
+- **Keycloak** — the real login path. Locally, a Keycloak instance runs in Docker with a pre-configured test user (`parent1` / `parent12345`, see `docs/setup-guide.md` §3) — click "Sign in with Keycloak" and use those credentials. For a real deployment, this points at your organization's actual Keycloak realm instead.
+- **Demo account** — a lighter-weight local-testing shortcut, credentials shown on the `/help` page. Gets removed before any real launch (see `CLAUDE.md`).
 
 ## Setting up a kid profile
 

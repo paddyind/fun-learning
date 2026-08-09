@@ -4,14 +4,14 @@ The app builds and boots with the placeholder values already in `.env.local`, bu
 
 ## Status check: what's blocking you right now
 
-| Feature | Needs | Status with placeholders |
+| Feature | Needs | Status |
 |---|---|---|
 | Landing page, PWA install, dashboard shell | nothing | ✅ works |
-| Sign-in | Keycloak **or** the demo account (see `/help`) | ✅ works today via demo login |
-| Kid profiles, subjects, quiz results, uploaded notes | Firebase project (Auth real, Firestore/Storage emulated by default) | ❌ fails until you complete §1 |
+| Sign-in | Local Keycloak (built in) **or** the demo account (see `/help`) | ✅ both work out of the box |
+| Kid profiles, subjects, quiz results, uploaded notes | Firebase project (Auth real, Firestore/Storage emulated by default) | ✅ once §1 is done |
 | Photo → notes (OCR), AI quiz generation, flashcards | **real Gemini API key** | ❌ fails until you complete §2 |
 
-So: **Firebase first** (unblocks profiles/data), **Gemini second** (unblocks the AI features). Keycloak is optional while you're testing locally — the demo login (`/help`) bypasses it.
+So: **Firebase first** (unblocks profiles/data), **Gemini second** (unblocks the AI features). Keycloak needs nothing from you — a local instance is included and pre-configured (§3).
 
 ---
 
@@ -79,13 +79,27 @@ When you're ready to stop emulating (e.g. before a real deployment):
 
 ---
 
-## 3. Keycloak (optional for local testing)
+## 3. Keycloak (included — nothing to set up)
 
-Skip this entirely while testing locally — use the **demo account** shown on `/help` instead. Set up real Keycloak only once you're ready to onboard real families; that's a separate task (realm, client, redirect URIs matching `NEXTAUTH_URL`) not covered here since it's not blocking local testing.
+A real local Keycloak instance is part of `docker-compose.yml` (the `keycloak` service) — `docker compose up` starts it alongside the app, with a realm/client/test-user already imported from `keycloak/realm-export.json`. Nothing to configure:
 
-**Expected:** clicking "Sign in with Keycloak" on the landing page while `KEYCLOAK_ISSUER` is still the `.env.local` placeholder will fail with a redirect to `?error=OAuthSignin` — NextAuth can't reach a Keycloak server that doesn't exist yet. `components/SignInCard.tsx` recognizes this specific error and tells the user to use the demo account instead of showing a generic "check your details" message; it also auto-expands the demo login form when this happens. This is not a bug to fix, just documenting the expected flow.
+- **Realm:** `fun-learning`
+- **Client:** `fun-learning-app` (already matches `.env.local`'s `KEYCLOAK_CLIENT_ID`)
+- **Test user:** `parent1` / `parent12345`
+- **Admin console:** [http://localhost:8180](http://localhost:8180) (`admin` / `admin`) if you want to add more users or inspect the realm
 
-If/when you want to test the *real* Keycloak OIDC flow locally (not just the demo bypass) — e.g. before productizing — a local Keycloak instance via Docker (realm import, client registration matching `KEYCLOAK_CLIENT_ID`/`NEXTAUTH_URL`) is the same class of solution as the Firebase emulator setup above, just not built yet. Ask for it when you actually need it.
+Click **"Sign in with Keycloak"** on the landing page and log in with `parent1`/`parent12345` — this exercises the real OIDC flow (authorization code + PKCE, server-side token exchange), not the demo bypass. The demo account (`/help`) still works too and is unaffected — use whichever is convenient.
+
+Why port **8180**, not Keycloak's default 8080: the Firestore emulator (§1) already owns 8080.
+
+### Why this needed the same "dual hostname" fix as the Firebase emulator
+
+Keycloak issues tokens with an `iss` (issuer) claim that must exactly match what NextAuth expects — but the **browser** reaches Keycloak via `http://localhost:8180`, while this app's own **server** (inside its Docker container) would normally need a different hostname (the docker-compose service name) to reach the same Keycloak instance. Two different hostnames would mean two different `iss` values, breaking token validation.
+
+Fixed via `extra_hosts: ["localhost:host-gateway"]` on the `web` service in `docker-compose.yml` — this makes `localhost` inside the app container resolve to the host machine (Docker's portable host-gateway mechanism), so **both** the browser and the app's server reach Keycloak via the exact same `http://localhost:8180`, and Keycloak (configured with a fixed `KC_HOSTNAME=localhost`) always reports the same issuer regardless of which one asked. See `docs/architecture.md` for the full explanation — it's the same shape of problem the Firebase emulator setup already solved, just for a different service.
+
+### Setting up real Keycloak later (production)
+Not covered here since it's not blocking local testing — that's a separate task: a real realm on your organization's Keycloak server, a client registered with production redirect URIs matching your real `NEXTAUTH_URL`, and updating `KEYCLOAK_CLIENT_ID`/`KEYCLOAK_CLIENT_SECRET`/`KEYCLOAK_ISSUER` accordingly. Once real Keycloak is in place, remove the demo login (see `CLAUDE.md` → Known follow-ups) — the local Keycloak service here is fine to leave as-is for continued local dev even after that.
 
 ---
 
@@ -97,15 +111,14 @@ If/when you want to test the *real* Keycloak OIDC flow locally (not just the dem
 docker compose --env-file .env.local up -d --build
 ```
 
-This now also starts the `firebase-emulator` container (Firestore + Storage). Give it a few seconds to finish starting before testing — check `docker compose logs firebase-emulator` if the app can't reach it right away.
+This starts the app plus two local services: `firebase-emulator` (Firestore + Storage) and `keycloak`. Give them a few seconds to finish starting before testing — check `docker compose logs firebase-emulator` or `docker compose logs keycloak` if something can't be reached right away.
 
-(Running locally with `npm run dev` instead picks up `.env.local` automatically on restart — no rebuild step needed there, but you'd need to run `firebase emulators:start --only firestore,storage` yourself in a separate terminal for emulator mode to work outside Docker.)
+(Running locally with `npm run dev` instead picks up `.env.local` automatically on restart — no rebuild step needed there, but you'd need to run the Firebase emulator and a Keycloak instance yourself outside Docker for those flows to work.)
 
 ---
 
 ## 5. Verify it worked
 
-1. Open `http://localhost:3000`, sign in with the demo account (`/help` has the credentials).
-2. You should land on the profile picker instead of the "Something needs setting up" error card. If you still see that card, read its message — it now tells you specifically whether it's a Firebase config problem or a rules/permission problem (see `components/ProfileProvider.tsx`'s `friendlyFirebaseError`).
-3. Create a profile → pick a subject → **Upload Notes** with a real textbook photo → confirm you get back extracted text (proves Gemini + Storage + Firestore write all work). Check `http://localhost:4000` (Emulator UI) to see the data land in real time.
-4. **Take Challenge** on that subject → confirm 5 questions generate and confetti fires on a correct answer.
+1. Open `http://localhost:3000`. Either **"Sign in with Keycloak"** (`parent1`/`parent12345`) or the demo account (`/help`) should land you on the profile picker instead of the "Something needs setting up" error card. If you still see that card, read its message — it now tells you specifically whether it's a Firebase config problem or a rules/permission problem (see `components/ProfileProvider.tsx`'s `friendlyFirebaseError`).
+2. Create a profile → pick a subject → **Upload Notes** with a real textbook photo → confirm you get back extracted text (proves Gemini + Storage + Firestore write all work). Check `http://localhost:4000` (Emulator UI) to see the data land in real time.
+3. **Take Challenge** on that subject → confirm 5 questions generate and confetti fires on a correct answer.
