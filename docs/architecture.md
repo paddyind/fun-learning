@@ -4,7 +4,7 @@
 
 - **Framework:** Next.js 14 (App Router, TypeScript, Tailwind CSS). No `src/` directory — `app/`, `lib/`, `components/` sit at repo root.
 - **Auth:** NextAuth.js v4, two providers:
-  - `KeycloakProvider` — the real, intended login path (OIDC). A local Keycloak instance is included for testing (`docker-compose.yml`'s `keycloak` service, realm imported from `keycloak/realm-export.json`) — see "Local Keycloak" below.
+  - `KeycloakProvider` — the real, intended login path (OIDC). Keycloak itself is **not part of this repo** — it's owned by the sibling `identity-platform` project, started separately — see "Keycloak lives outside this repo" below.
   - `CredentialsProvider` ("demo") — a fixed-credential local-testing fallback (`lib/demoLogin.ts`), shown on `/help`. **Must be removed before any real deployment** (see `CLAUDE.md` → Known follow-ups).
 - **Database/Storage:** Firebase — Firestore for data, Storage for uploaded book-page images. **Emulated locally by default** (`NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true`, `Dockerfile.emulator`) since real Cloud Storage now requires the Blaze plan even at $0 usage — see "Emulators vs. real Firebase" below.
 - **AI:** Google Gemini via `@google/genai`, wrapped in `lib/gemini.ts`. Handles OCR extraction (`extractStudyMaterial`), quiz generation (`generateQuizQuestions`), and flashcard generation (`generateFlashcards`).
@@ -48,22 +48,35 @@ Client-side (the user's browser, outside any container) → localhost:8080 / :91
 
 Switching to real Firestore/Storage later (`NEXT_PUBLIC_USE_FIREBASE_EMULATORS=false`) requires enabling them for real in the Firebase console (Storage will prompt for Blaze) and deploying `firestore.rules`/`storage.rules`/`firestore.indexes.json` — see `docs/setup-guide.md` §1f.
 
-## Local Keycloak (and the dual-hostname problem, solved differently here)
+## Keycloak lives outside this repo (and the dual-hostname problem, solved via endpoint-splitting)
 
-`docker-compose.yml`'s `keycloak` service runs a real Keycloak instance for local testing, realm/client/test-user pre-imported from `keycloak/realm-export.json` (realm `fun-learning`, client `fun-learning-app`, user `parent1`/`parent12345`). Port **8180**, not Keycloak's default 8080, because the Firestore emulator already owns 8080.
+**fun-learning does not run Keycloak.** Identity/auth infrastructure is owned by a sibling project, **`identity-platform`** (`../identity-platform`) — a shared Keycloak deployment meant for multiple apps in this workspace, not fun-learning-specific. `identity-platform/realms/fun-learning-realm.json` defines this app's realm (`fun-learning`), a single client (`fun-learning-app`), and a test user (`parent1@example.com`/`parent12345`). Start it with `cd ../identity-platform && docker compose up -d`; see `docs/setup-guide.md` §3 for the full picture and identity-platform's own `docs/ONBOARDING.md` for the platform's design.
 
-This has the same *shape* of problem as the Firebase emulator (browser and the app's own server need to reach the same service, but naively would use different hostnames), but it can't be solved the same way (a `typeof window` branch), because **Keycloak itself embeds a hostname in the tokens it issues** (the `iss` claim) — if the browser and the server reached Keycloak via two different hostnames, Keycloak would report two different issuers, and NextAuth would reject the mismatch as a possible token-substitution attack (it's supposed to).
+fun-learning registers **one confidential client**, not identity-platform's usual `{app}-frontend`/`{app}-backend` pair — because it's a single Next.js server doing the whole OIDC exchange itself via NextAuth (never a client-side SPA + separate bearer-token-verifying backend). See identity-platform's `docs/ONBOARDING.md` § "Server-rendered app pattern (NextAuth-style)" — fun-learning is that pattern's reference example.
 
-Fixed instead by making both sides use the *same* hostname:
+### The dual-hostname problem
 
-- Keycloak is configured with a fixed `KC_HOSTNAME=localhost` (+ `KC_HOSTNAME_PORT=8180`), so it always reports `iss` as `http://localhost:8180/realms/fun-learning` no matter which network path a request arrived on.
-- The `web` service gets `extra_hosts: ["localhost:host-gateway"]` in `docker-compose.yml` — Docker's portable mechanism for making `localhost` *inside* a container resolve to the host machine. This means the app container's own server-side requests (NextAuth's OIDC discovery fetch, the authorization-code → token exchange, the userinfo call) reach Keycloak via literally the same `http://localhost:8180` URL the browser uses, routed through the host's published port instead of the docker-compose service name.
+This has the same *shape* of problem the Firebase emulator has (browser and the app's own server need to reach the same service, but naively would use different hostnames) — but it can't be solved the same way (remapping `localhost` itself), because **Keycloak embeds a hostname in the tokens it issues** (the `iss` claim). If the browser and the server reached Keycloak via two different hostnames, Keycloak would report two different issuers, and any correct OIDC client would reject the mismatch as a possible token-substitution attack — it's supposed to.
 
-One consequence worth knowing: this remaps `localhost` for every process in the `web` container, not just Keycloak calls. Verified safe here because nothing else in the app makes a self-referential `localhost` call from server-side code (`NEXTAUTH_URL=http://localhost:3000` is used by NextAuth to construct redirect URLs as a string, not to dial itself). If a future feature ever needs the app container to call *itself* by hostname, don't use `localhost` for that — use the container's own address or a dedicated internal route.
+Fixed differently here: **split the OIDC endpoints themselves**, in `lib/auth.ts`'s `KeycloakProvider` config:
 
-Verified end-to-end (not just discovery): a full authorization-code + PKCE login as `parent1`, followed by the server-side token exchange, a session with the real Keycloak identity, and a successful `/api/firebase-token` custom-token mint — all working through this hostname setup.
+```
+issuer            → KEYCLOAK_ISSUER (public, e.g. http://localhost:3510/realms/fun-learning)
+                    used for the browser-facing authorization redirect AND for `iss` validation
+authorization     → same public URL
+token             → KEYCLOAK_INTERNAL_ISSUER (this app's server → Keycloak, e.g.
+userinfo            http://host.docker.internal:3510/realms/fun-learning inside Docker,
+jwks_endpoint       or the same as KEYCLOAK_ISSUER when running via `npm run dev`)
+wellKnown         → explicitly unset (undefined)
+```
 
-Setting up *real* Keycloak (a production realm, not this local one) is a separate, later task — see `docs/setup-guide.md` §3.
+NextAuth's `KeycloakProvider` defaults to a single well-known-discovery URL derived from `issuer`, and if `wellKnown` were left set, the SERVER-side discovery fetch would target the public (browser-only-reachable) host and fail inside Docker. Setting `wellKnown: undefined` disables discovery entirely, so NextAuth builds its OIDC client purely from the explicit endpoint values instead — letting `token`/`userinfo`/`jwks_endpoint` point at whichever host can actually reach them, while `issuer` stays pinned to the public value Keycloak actually stamps into every token's `iss` claim (identity-platform's Keycloak has a fixed `KC_HOSTNAME`, so `iss` never varies regardless of which URL a request used to reach it). Traced through NextAuth v4's actual source (`node_modules/next-auth/core/lib/oauth/client.js`) to confirm this behavior before relying on it — worth re-checking if next-auth is ever upgraded.
+
+Unlike the Firebase emulator's fix (`extra_hosts: ["localhost:host-gateway"]`, remapping `localhost` for the whole container), this approach touches nothing at the Docker networking level — `host.docker.internal` is used directly, which Docker Desktop (Mac/Windows) provides natively with zero extra configuration. This also matches identity-platform's own documented convention for *any* consumer app's server-side code, not something invented just for fun-learning.
+
+Verified end-to-end (not just discovery): a full authorization-code + PKCE login as `parent1`, followed by the server-side token exchange, a session with the real Keycloak identity, and a successful `/api/firebase-token` custom-token mint — all working through this endpoint-split setup.
+
+Setting up *real* Keycloak (a production realm, not this local one) is a separate, later task — see `docs/setup-guide.md` §3 and identity-platform's `docs/ONBOARDING.md` § "Production cutover".
 
 ## Two Firestore access paths — client SDK (rule-enforced) vs admin SDK (bypasses rules)
 

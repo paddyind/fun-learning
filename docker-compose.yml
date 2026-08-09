@@ -25,19 +25,20 @@ services:
     container_name: fun-learning
     env_file:
       - .env.local
+    environment:
+      # Keycloak lives in the sibling identity-platform repo, not here (see
+      # docs/setup-guide.md §3). The browser reaches it at KEYCLOAK_ISSUER
+      # (http://localhost:3510/...); this app's own server, running inside
+      # this container, needs host.docker.internal instead of localhost to
+      # reach that same external Keycloak — Docker Desktop provides this
+      # natively, no extra_hosts entry required. See lib/auth.ts and
+      # identity-platform's docs/ONBOARDING.md "public issuer vs Docker
+      # JWKS URL" for the full explanation.
+      KEYCLOAK_INTERNAL_ISSUER: http://host.docker.internal:3510/realms/fun-learning
     ports:
       - "3000:3000"
-    # Makes `localhost` resolve to the host machine from inside this
-    # container (Docker's portable host-gateway mechanism). This is what
-    # lets KEYCLOAK_ISSUER be a single plain http://localhost:8180/... value
-    # that works both for the browser (genuinely localhost) and for this
-    # container's own server-side token/discovery requests (which would
-    # otherwise need a different hostname — see docs/architecture.md).
-    extra_hosts:
-      - "localhost:host-gateway"
     depends_on:
       - firebase-emulator
-      - keycloak
     restart: unless-stopped
 
   # Local-only Firestore + Storage emulator — see Dockerfile.emulator for
@@ -57,29 +58,4 @@ services:
       - "8080:8080" # Firestore
       - "9199:9199" # Storage
       - "4000:4000" # Emulator UI — open http://localhost:4000 to inspect data
-    restart: unless-stopped
-
-  # Local Keycloak for testing the real OIDC flow (not just the /help demo
-  # account bypass). Realm/client/test-user auto-imported from
-  # keycloak/realm-export.json on first start. Port 8180 (not Keycloak's
-  # default 8080) because the Firestore emulator already owns 8080 above.
-  # KC_HOSTNAME is fixed to "localhost" so every token Keycloak issues has a
-  # consistent `iss` claim regardless of which network path reached it —
-  # see docs/architecture.md for why this matters and how extra_hosts above
-  # makes that true from inside the app container too.
-  keycloak:
-    image: quay.io/keycloak/keycloak:latest
-    container_name: fun-learning-keycloak
-    command: start-dev --import-realm
-    environment:
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
-      KC_HOSTNAME: localhost
-      KC_HOSTNAME_PORT: "8180"
-      KC_HOSTNAME_STRICT: "false"
-      KC_HTTP_ENABLED: "true"
-    volumes:
-      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
-    ports:
-      - "8180:8080"
     restart: unless-stopped

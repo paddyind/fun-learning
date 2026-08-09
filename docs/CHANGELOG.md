@@ -2,6 +2,14 @@
 
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Update this file alongside any non-trivial change — it's the fast way to answer "when did X happen and why."
 
+## 2026-08-09 (Keycloak moved to identity-platform)
+
+### Changed
+- **Keycloak infrastructure removed from this repo entirely** — moved to the sibling `identity-platform` project (a shared multi-app Keycloak deployment, `../identity-platform`), which already existed and has an established onboarding convention (`docs/ONBOARDING.md`, realm-per-app, no Keycloak in any consumer app's own compose). Removed: `docker-compose.yml`'s `keycloak` service, the `keycloak/realm-export.json` file, the `extra_hosts: host-gateway` Docker networking trick. fun-learning is now a pure consumer, same as identity-platform's other registered apps.
+- **`lib/auth.ts` rewritten** to use explicit endpoint-splitting instead of Docker networking tricks: `issuer`/`authorization` point at the public `KEYCLOAK_ISSUER` (browser-reachable, also what Keycloak stamps into every token's `iss` claim), while `token`/`userinfo`/`jwks_endpoint` point at `KEYCLOAK_INTERNAL_ISSUER` (`http://host.docker.internal:3510/...` inside Docker, native to Docker Desktop, no extra config). `wellKnown` is explicitly disabled so NextAuth doesn't attempt a well-known-discovery fetch against the public URL from inside the server (which would fail in Docker). Traced through next-auth v4's actual source to confirm this behavior before relying on it.
+- fun-learning registered in identity-platform's realm registry as `realms/fun-learning-realm.json` — a single confidential client (`fun-learning-app`), not the platform's usual `{app}-frontend`/`{app}-backend` pair, because fun-learning is a server-rendered NextAuth app, not an SPA + separate backend. Documented this as a new general pattern in identity-platform's own `docs/ONBOARDING.md` § "Server-rendered app pattern (NextAuth-style)" for future apps built the same way.
+- Test user credentials unchanged in spirit, updated in form: `parent1@example.com` / `parent12345` (was `parent1`/`parent12345` — now matches identity-platform's `registrationEmailAsUsername` convention). Keycloak now runs on port **3510** (identity-platform's platform-wide port), not the fun-learning-local 8180 used previously.
+
 ## 2026-08-09 (local Keycloak + real Firebase credentials)
 
 ### Added

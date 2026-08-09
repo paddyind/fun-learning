@@ -7,11 +7,11 @@ The app builds and boots with the placeholder values already in `.env.local`, bu
 | Feature | Needs | Status |
 |---|---|---|
 | Landing page, PWA install, dashboard shell | nothing | ✅ works |
-| Sign-in | Local Keycloak (built in) **or** the demo account (see `/help`) | ✅ both work out of the box |
+| Sign-in | The sibling **identity-platform** repo running (§3) **or** the demo account (see `/help`) | ✅ demo works immediately; Keycloak needs identity-platform started once |
 | Kid profiles, subjects, quiz results, uploaded notes | Firebase project (Auth real, Firestore/Storage emulated by default) | ✅ once §1 is done |
 | Photo → notes (OCR), AI quiz generation, flashcards | **real Gemini API key** | ❌ fails until you complete §2 |
 
-So: **Firebase first** (unblocks profiles/data), **Gemini second** (unblocks the AI features). Keycloak needs nothing from you — a local instance is included and pre-configured (§3).
+So: **Firebase first** (unblocks profiles/data), **Gemini second** (unblocks the AI features). Keycloak needs identity-platform running (§3) — or skip it entirely and use the demo account.
 
 ---
 
@@ -79,27 +79,40 @@ When you're ready to stop emulating (e.g. before a real deployment):
 
 ---
 
-## 3. Keycloak (included — nothing to set up)
+## 3. Keycloak (external — lives in the sibling `identity-platform` repo)
 
-A real local Keycloak instance is part of `docker-compose.yml` (the `keycloak` service) — `docker compose up` starts it alongside the app, with a realm/client/test-user already imported from `keycloak/realm-export.json`. Nothing to configure:
+**This repo does not run Keycloak.** Identity/auth infrastructure is intentionally kept out of fun-learning — it lives in a separate, sibling project, **`identity-platform`** (`../identity-platform` next to this repo), which is a shared Keycloak deployment for multiple apps in this workspace, not something fun-learning-specific. See that repo's `docs/ONBOARDING.md` for the full platform design; this section just covers what fun-learning needs from it.
+
+### Start it
+
+```bash
+cd ../identity-platform
+docker compose up -d
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3510/realms/fun-learning
+# expect 200
+```
+
+fun-learning's realm is already defined there (`identity-platform/realms/fun-learning-realm.json`) — nothing to create, just start the platform:
 
 - **Realm:** `fun-learning`
-- **Client:** `fun-learning-app` (already matches `.env.local`'s `KEYCLOAK_CLIENT_ID`)
-- **Test user:** `parent1` / `parent12345`
-- **Admin console:** [http://localhost:8180](http://localhost:8180) (`admin` / `admin`) if you want to add more users or inspect the realm
+- **Client:** `fun-learning-app` (a single confidential client — see below for why this differs from identity-platform's usual frontend/backend client pair)
+- **Test user:** `parent1@example.com` / `parent12345`
+- **Admin console:** [http://localhost:3510](http://localhost:3510) (`admin`/`admin`), or the realm-scoped console at `http://localhost:3510/admin/fun-learning/console/`
 
-Click **"Sign in with Keycloak"** on the landing page and log in with `parent1`/`parent12345` — this exercises the real OIDC flow (authorization code + PKCE, server-side token exchange), not the demo bypass. The demo account (`/help`) still works too and is unaffected — use whichever is convenient.
+Click **"Sign in with Keycloak"** on the landing page and log in with those credentials — this exercises the real OIDC flow (authorization code + PKCE, server-side token exchange), not the demo bypass. The demo account (`/help`) still works too and is unaffected — use whichever is convenient. If identity-platform isn't running, the Keycloak button fails with a clear "Keycloak isn't reachable yet" message (see `components/SignInCard.tsx`) rather than a cryptic error.
 
-Why port **8180**, not Keycloak's default 8080: the Firestore emulator (§1) already owns 8080.
+### Why fun-learning registers one client, not the usual frontend/backend pair
 
-### Why this needed the same "dual hostname" fix as the Firebase emulator
+identity-platform's convention (documented in its `docs/ONBOARDING.md`) is built around apps with a client-side SPA (`keycloak-js`) plus a separate backend verifying bearer tokens — two clients, `{app}-frontend` (public) and `{app}-backend` (confidential, service account). fun-learning is architecturally different: a single Next.js server does the entire OIDC exchange itself via NextAuth, holds the client secret server-side, and only ever hands the browser an httpOnly session cookie — never a Keycloak token. That maps onto **one confidential client** (`fun-learning-app`, `standardFlowEnabled: true`, not service-accounts-only), not two. See identity-platform's `docs/ONBOARDING.md` § "Server-rendered app pattern (NextAuth-style)" for the general version of this pattern — fun-learning is its reference example.
 
-Keycloak issues tokens with an `iss` (issuer) claim that must exactly match what NextAuth expects — but the **browser** reaches Keycloak via `http://localhost:8180`, while this app's own **server** (inside its Docker container) would normally need a different hostname (the docker-compose service name) to reach the same Keycloak instance. Two different hostnames would mean two different `iss` values, breaking token validation.
+### Why this needed a "dual hostname" fix, same shape as the Firebase emulator's
 
-Fixed via `extra_hosts: ["localhost:host-gateway"]` on the `web` service in `docker-compose.yml` — this makes `localhost` inside the app container resolve to the host machine (Docker's portable host-gateway mechanism), so **both** the browser and the app's server reach Keycloak via the exact same `http://localhost:8180`, and Keycloak (configured with a fixed `KC_HOSTNAME=localhost`) always reports the same issuer regardless of which one asked. See `docs/architecture.md` for the full explanation — it's the same shape of problem the Firebase emulator setup already solved, just for a different service.
+Keycloak issues tokens with an `iss` (issuer) claim that must exactly match what NextAuth expects — but the **browser** reaches Keycloak via `http://localhost:3510`, while this app's own **server** (inside its Docker container) needs a different hostname to reach that same, externally-run Keycloak. Two different hostnames talking to the same service would normally risk two different `iss` values.
+
+Fixed in `lib/auth.ts`: `issuer` (used for the browser-facing authorization redirect and for `iss` validation) stays pinned to the public `KEYCLOAK_ISSUER` value, while `token`/`userinfo`/`jwks_endpoint` are explicitly pointed at `KEYCLOAK_INTERNAL_ISSUER` — `http://host.docker.internal:3510/...` inside Docker (Docker Desktop provides this hostname natively, no extra config needed), or the same value as `KEYCLOAK_ISSUER` when running via `npm run dev` outside Docker. See `docs/architecture.md` and identity-platform's `docs/ONBOARDING.md` "public issuer vs Docker JWKS URL" for the full explanation — it's the same class of problem the Firebase emulator setup solved, just fixed differently here (endpoint-splitting inside the OIDC client config, rather than remapping `localhost` itself).
 
 ### Setting up real Keycloak later (production)
-Not covered here since it's not blocking local testing — that's a separate task: a real realm on your organization's Keycloak server, a client registered with production redirect URIs matching your real `NEXTAUTH_URL`, and updating `KEYCLOAK_CLIENT_ID`/`KEYCLOAK_CLIENT_SECRET`/`KEYCLOAK_ISSUER` accordingly. Once real Keycloak is in place, remove the demo login (see `CLAUDE.md` → Known follow-ups) — the local Keycloak service here is fine to leave as-is for continued local dev even after that.
+Not covered here since it's not blocking local testing. Follow identity-platform's `docs/ONBOARDING.md` § "Production cutover" — same realm/client names, different `KEYCLOAK_ISSUER`/`KEYCLOAK_INTERNAL_ISSUER` values pointing at a real Keycloak deployment, and rotate the `fun-learning-app` client secret out of its dev value. Once real Keycloak is in place, remove the demo login (see `CLAUDE.md` → Known follow-ups).
 
 ---
 
@@ -111,9 +124,9 @@ Not covered here since it's not blocking local testing — that's a separate tas
 docker compose --env-file .env.local up -d --build
 ```
 
-This starts the app plus two local services: `firebase-emulator` (Firestore + Storage) and `keycloak`. Give them a few seconds to finish starting before testing — check `docker compose logs firebase-emulator` or `docker compose logs keycloak` if something can't be reached right away.
+This starts the app plus `firebase-emulator` (Firestore + Storage). It does **not** start Keycloak — that's identity-platform's job (§3); start it separately if you want the real OIDC flow, or skip it and use the demo account. Give the emulator a few seconds to finish starting before testing — check `docker compose logs firebase-emulator` if it can't be reached right away.
 
-(Running locally with `npm run dev` instead picks up `.env.local` automatically on restart — no rebuild step needed there, but you'd need to run the Firebase emulator and a Keycloak instance yourself outside Docker for those flows to work.)
+(Running locally with `npm run dev` instead picks up `.env.local` automatically on restart — no rebuild step needed there, but you'd need to run the Firebase emulator yourself outside Docker for uploads/OCR to work.)
 
 ---
 
